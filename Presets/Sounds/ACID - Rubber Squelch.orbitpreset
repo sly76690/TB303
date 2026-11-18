@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OrbitState stateVersion="1" program="0" modified="0">
+  <PARAM id="wave" value="1.0"/>
+  <PARAM id="cutoff" value="320.0"/>
+  <PARAM id="resonance" value="0.78"/>
+  <PARAM id="envMod" value="0.62"/>
+  <PARAM id="decay" value="0.45"/>
+  <PARAM id="accent" value="0.7"/>
+</OrbitState>
