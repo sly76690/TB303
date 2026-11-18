@@ -10,6 +10,7 @@ using namespace juce;
 #include "CharacterDelay.h"
 #include "ForceTouch.h"
 #include "AcidVoice.h"
+#include "Pattern.h"
 
 // OXIDE: a monophonic acid synthesizer. One voice (AcidVoice.h), played from the keys: a note pressed while another is
 // still held slides to it, a hard-struck note is accented. Then a pedal-style DRIVE, the echo and the reverb.
@@ -22,6 +23,8 @@ public:
   for(auto* param:getParameters()) if(auto* identified=dynamic_cast<AudioProcessorParameterWithID*>(param)) state.addParameterListener(identified->paramID,this);
   state.state.setProperty("stateVersion",1,nullptr);
   for(auto& slot:ccTarget)slot.store(-1);addListener(this);
+  for(auto& p:patterns)p.clear();
+  for(int i=0;i<int(starterPatterns().size());++i)patterns[size_t(i)].fromString(starterPatterns()[size_t(i)]);
  }
  ~Orbit() override {removeListener(this);for(auto* param:getParameters()) if(auto* identified=dynamic_cast<AudioProcessorParameterWithID*>(param)) state.removeParameterListener(identified->paramID,this);}
  String userPresetName() const {return state.state.getProperty("userPresetName").toString();}
@@ -44,18 +47,33 @@ public:
  int soundingNote() const {return shownNote.load();}
  bool accentLit() const {return shownAccent.load();}
  bool slideLit() const {return shownSlide.load();}
+ // ---- PATTERN SEQUENCER: sixteen patterns of up to sixteen steps, kept with the session (not with the sounds, so a
+ // pattern plays with any sound). The panel reads and edits them under the same lock as the audio thread.
+ int patternIndex() const {return jlimit(0,15,int(value("pattern")));}
+ String patternText(int index){const SpinLock::ScopedLockType lock(patternLock);return patterns[size_t(jlimit(0,15,index))].toString();}
+ void editPattern(const std::function<void(oxide::Pattern&)>& change){const SpinLock::ScopedLockType lock(patternLock);change(patterns[size_t(patternIndex())]);modified.store(true);}
+ int playingStep() const {return shownStep.load();}
+ int transposition() const {return transpose.load();}
+ std::atomic<int> editStep{0};std::atomic<bool> writing{false}; // WRITE: the keys fill the selected step, then the next
+ // Patterns 1 to 4 to start from (our own lines); the others start empty.
+ static const std::array<const char*,4>& starterPatterns(){static const std::array<const char*,4> p{{
+  "16|0,0,1,0,1;0,0,0,0,1;12,0,0,1,1;0,0,0,0,1;3,0,0,0,1;0,0,1,0,1;0,0,0,0,0;7,0,0,1,1;5,0,0,0,1;0,0,1,0,1;0,0,0,0,1;10,-1,0,0,1;0,0,0,1,1;3,0,0,0,1;0,0,1,0,1;7,0,0,0,1",
+  "16|0,0,1,0,1;0,0,0,1,1;0,1,0,0,1;0,0,0,0,0;0,0,1,0,1;3,0,0,1,1;5,0,0,0,1;0,0,0,0,2;0,0,1,0,1;0,0,0,0,1;10,0,0,1,1;12,0,1,0,1;0,0,0,0,0;7,0,0,1,1;5,0,0,0,1;3,0,1,0,1",
+  "16|0,0,1,1,1;12,0,0,0,1;0,0,0,0,1;0,0,1,1,1;7,0,0,0,1;0,0,0,0,0;3,1,1,0,1;0,0,0,1,1;0,0,1,0,1;0,0,0,0,1;5,0,0,1,1;6,0,0,0,1;7,0,1,0,1;0,0,0,0,0;10,-1,0,1,1;0,0,1,0,1",
+  "8|0,0,1,0,1;0,0,0,0,1;1,0,0,1,1;0,0,0,0,1;0,0,1,0,1;7,-1,0,0,1;0,0,0,1,1;12,0,1,0,1;0,0,0,0,1;0,0,0,0,1;0,0,0,0,1;0,0,0,0,1;0,0,0,0,1;0,0,0,0,1;0,0,0,0,1;0,0,0,0,1"}};return p;}
 
  // Host pages of eight, in the order of the front panel.
  static constexpr const char* hostPages[]={
   "wave","tune","cutoff","resonance","envMod","decay","accent","slideTime",            // VCO, VCF, ACCENT, SLIDE
-  "ampDecay","drive","driveTone","gain","bendRange","tempo","accentVelocity","delayOn", // VCA, DRIVE, OUTPUT, PLAY
+  "ampDecay","drive","driveTone","gain","bendRange","tempo","accentVelocity","seqPlay",  // VCA, DRIVE, OUTPUT, PLAY
+  "seqSync","pattern","swing","delayOn",                                                // SEQUENCER
   "delayTime","delaySync","delayFeedback","delayMod","delayMix","reverbOn","reverbType","reverbSize",
   "reverbDamp","reverbColor","reverbMix"};
  // Short names for the host and controller displays.
  static String label(const String& id,const String& longName){
   static const std::map<String,String> names{
    {"wave","Waveform"},{"tune","Tune"},{"cutoff","Cutoff"},{"resonance","Resonance"},{"envMod","Env Mod"},{"decay","Decay"},{"accent","Accent"},{"slideTime","Slide Time"},
-   {"ampDecay","VCA Decay"},{"drive","Drive"},{"driveTone","Drive Tone"},{"gain","Volume"},{"bendRange","Bend Range"},{"tempo","Tempo"},{"accentVelocity","Accent Vel"},
+   {"ampDecay","VCA Decay"},{"drive","Drive"},{"driveTone","Drive Tone"},{"gain","Volume"},{"bendRange","Bend Range"},{"tempo","Tempo"},{"accentVelocity","Accent Vel"},{"seqPlay","Seq Play"},{"seqSync","Seq Sync"},{"pattern","Pattern"},{"swing","Swing"},
    {"delayOn","Dly On"},{"delayTime","Dly Time"},{"delaySync","Dly Sync"},{"delayFeedback","Dly Fdbk"},{"delayMod","Dly Mod"},{"delayMix","Dly Level"},
    {"reverbOn","Rev On"},{"reverbType","Rev Type"},{"reverbSize","Rev Size"},{"reverbDamp","Rev Damp"},{"reverbColor","Rev Tone"},{"reverbMix","Rev Level"}};
   const auto found=names.find(id);return found!=names.end()?found->second:longName;
@@ -86,6 +104,10 @@ public:
   add("ampDecay","VCA decay (s)",.2f,8,3,.45f);add("drive","Drive",0,1,0);add("driveTone","Drive tone",0,1,.55f);add("gain","Output",0,1,.7f);
   add("bendRange","Pitch bend (semitones)",0,12,2);add("tempo","Tempo (BPM)",40,300,125);
   add("accentVelocity","Accent from velocity",.3f,1,.78f); // a note struck at least this hard is accented
+  // SEQUENCER: PLAY, SYNC (to the host's transport and beats), the pattern played, SWING (every second step later).
+  toggle("seqPlay","Sequencer play",false);toggle("seqSync","Sequencer host sync",false);
+  {StringArray numbers;for(int i=1;i<=16;++i)numbers.add(String(i));choice("pattern","Pattern",numbers,0);}
+  add("swing","Swing",0,.6f,0);
   toggle("delayOn","Delay on",true);add("delayTime","Delay time (s)",.03f,1.5f,.3f);
   choice("delaySync","Delay sync",{"FREE","1/2","1/4 D","1/4","1/4 T","1/8 D","1/8","1/8 T","1/16 D","1/16","1/16 T"},5);
   add("delayFeedback","Delay feedback",0,1.1f,.35f);add("delayMod","Delay modulation",0,1,.15f);add("delayMix","Delay mix",0,.65f,0);
@@ -104,7 +126,7 @@ public:
  void setCurrentProgram(int index) override {
   if(!isPositiveAndBelow(index,FactoryBank::order().size())) return;
   if(auto xml=FactoryBank::load(FactoryBank::order()[index])){
-   static const StringArray performance{"gain","bendRange","tempo","accentVelocity"};
+   static const StringArray performance{"gain","bendRange","tempo","accentVelocity","seqPlay","seqSync","pattern","swing"};
    std::array<float,8> kept{};for(int i=0;i<performance.size();++i)kept[size_t(i)]=state.getParameter(performance[i])->getValue();
    MemoryBlock data;copyXmlToBinary(*xml,data);loadingPreset.store(true);setStateInformation(data.getData(),int(data.getSize()));loadingPreset.store(false);
    for(int i=0;i<performance.size();++i)state.getParameter(performance[i])->setValueNotifyingHost(kept[size_t(i)]);
@@ -144,9 +166,13 @@ public:
   const int n=buffer.getNumSamples();
   dsp::AudioBlock<float> voiceBlock(voiceBuffer.getArrayOfWritePointers(),1,size_t(n));voiceBlock.clear();
   auto up=voicePass.processSamplesUp(voiceBlock);float* twice=up.getChannelPointer(0);
-  int at=0;
-  for(const auto event:midi){const int when=jlimit(0,n,event.samplePosition);if(when>at){s.bend=bendNow();voice.render(twice+2*at,2*(when-at),s);at=when;}handle(event.getMessage());}
-  if(n>at){s.bend=bendNow();voice.render(twice+2*at,2*(n-at),s);}
+  const int stepsFound=runSequencer(n);
+  int at=0,next=0;auto renderTo=[&](int when){if(when>at){s.bend=bendNow();voice.render(twice+2*at,2*(when-at),s);at=when;}};
+  for(const auto event:midi){const int when=jlimit(0,n,event.samplePosition);
+   while(next<stepsFound&&seqEvents[size_t(next)].offset<=when){renderTo(seqEvents[size_t(next)].offset);play(seqEvents[size_t(next)]);++next;}
+   renderTo(when);handle(event.getMessage());}
+  while(next<stepsFound){renderTo(seqEvents[size_t(next)].offset);play(seqEvents[size_t(next)]);++next;}
+  renderTo(n);
   voicePass.processSamplesDown(voiceBlock);
   for(int c=0;c<buffer.getNumChannels();++c)buffer.copyFrom(c,0,voiceBuffer,0,0,n);
   shownNote.store(voice.active()?voice.note():-1);shownSlide.store(voice.active()&&voice.sliding());
@@ -173,6 +199,7 @@ public:
  }
  bool hasEditor() const override {return true;} AudioProcessorEditor* createEditor() override;
  void getStateInformation(MemoryBlock& dest) override {auto saved=state.copyState();saved.setProperty("program",currentProgram.load(),nullptr);saved.setProperty("modified",modified.load(),nullptr);auto xml=saved.createXml();
+  {auto* list=xml->createNewChildElement("Patterns");const SpinLock::ScopedLockType lock(patternLock);for(int i=0;i<16;++i)list->setAttribute("p"+String(i+1),patterns[size_t(i)].toString());}
   auto* map=xml->createNewChildElement("MidiMap");for(int cc=0;cc<128;++cc)if(const int index=ccTarget[size_t(cc)].load();index>=0){auto* entry=map->createNewChildElement("Map");entry->setAttribute("cc",cc);entry->setAttribute("id",parameterId(index));}
   copyXmlToBinary(*xml,dest);}
  // ---- MIDI learn: one CC per control. Learning: touch a control on the panel, then move a knob on the controller.
@@ -190,6 +217,9 @@ public:
   if(auto* map=xml->getChildByName("MidiMap")){for(auto& slot:ccTarget)slot.store(-1);
    for(auto* entry:map->getChildIterator()){const int cc=entry->getIntAttribute("cc",-1);const int index=parameterIndex(entry->getStringAttribute("id"));if(isPositiveAndBelow(cc,128)&&index>=0)ccTarget[size_t(cc)].store(index);}
    xml->removeChildElement(map,true);}
+  // The patterns come back with a session; a sound or preset (which never holds them) leaves them as they are.
+  if(auto* list=xml->getChildByName("Patterns")){{const SpinLock::ScopedLockType lock(patternLock);for(int i=0;i<16;++i)if(list->hasAttribute("p"+String(i+1)))patterns[size_t(i)].fromString(list->getStringAttribute("p"+String(i+1)));}
+   xml->removeChildElement(list,true);}
   auto restored=ValueTree::fromXml(*xml);restored.setProperty("stateVersion",1,nullptr);
   currentProgram.store(jlimit(0,getNumPrograms()-1,int(restored.getProperty("program",0))));
   for(auto* base:getParameters())if(auto* parameter=dynamic_cast<RangedAudioParameter*>(base)){ // a setting the preset does not list goes back to its default
@@ -204,6 +234,9 @@ private:
  // Monophonic play: the newest key sounds. A key pressed while another is held slides to it; letting go of the newest
  // key slides back to the one still held. A key struck at least ACCENT VEL hard is accented.
  void handle(const MidiMessage& m){
+  if(m.isNoteOn()&&writing.load()&&!seqRunning)writeStep(m);
+  if(seqRunning&&(m.isNoteOn()||m.isNoteOff())){ // while the pattern plays, a key transposes it (C3 plays it as written)
+   if(m.isNoteOn())transpose.store(jlimit(-24,24,m.getNoteNumber()-48));return;}
   if(m.isNoteOn()){const int note=m.getNoteNumber();const bool legato=!held.isEmpty();held.removeFirstMatchingValue(note);held.add(note);
    const bool accented=m.getFloatVelocity()>=value("accentVelocity");voice.noteOn(note,accented,legato);shownAccent.store(accented);}
   else if(m.isNoteOff()){const int note=m.getNoteNumber();const bool wasNewest=!held.isEmpty()&&held.getLast()==note;held.removeFirstMatchingValue(note);
@@ -211,6 +244,49 @@ private:
   else if(m.isAllNotesOff()||m.isAllSoundOff()){held.clearQuick();voice.noteOff();}
   else if(m.isPitchWheel())wheel=float(m.getPitchWheelValue()-8192)/8192.f;
  }
+ // WRITE: the key goes into the selected step (its octave from where it is played around C2, ACCENT from how hard),
+ // a key played while the last one is still held slides into it; then the next step is selected.
+ void writeStep(const MidiMessage& m){
+  const int rel=m.getNoteNumber()-36,octave=rel<0?-1:rel>12?1:0,note=jlimit(0,12,rel-12*octave);
+  const bool accented=m.getFloatVelocity()>=value("accentVelocity"),legato=!held.isEmpty();
+  const SpinLock::ScopedLockType lock(patternLock);auto& p=patterns[size_t(patternIndex())];const int i=jlimit(0,p.length-1,editStep.load());
+  if(legato){auto& before=p.steps[size_t((i+p.length-1)%p.length)];if(before.gate!=oxide::rest)before.slide=true;}
+  auto& step=p.steps[size_t(i)];step.note=note;step.octave=octave;step.accent=accented;step.slide=false;step.gate=oxide::play;
+  editStep.store((i+1)%p.length);modified.store(true);
+ }
+ // The sequencer clock: the step boundaries that fall in this block (sixteenth notes, SWING delaying every second one),
+ // in time with the host's beats when SYNC is on and the host plays. Returns how many events it wrote in seqEvents.
+ struct SeqEvent{int offset;bool on;int note;bool accent,slide;};
+ int runSequencer(int n){
+  int count=0;auto emit=[&](int offset,bool on,int note,bool accent,bool slide){if(count<int(seqEvents.size()))seqEvents[size_t(count++)]={offset,on,note,accent,slide};};
+  const bool playing=value("seqPlay")>.5f;
+  if(!playing){if(seqRunning){if(seqNoteOn)emit(0,false,0,false,false);seqNoteOn=false;seqRunning=false;offIn=-1;}shownStep.store(-1);return count;}
+  oxide::Pattern p;{const SpinLock::ScopedLockType lock(patternLock);p=patterns[size_t(patternIndex())];}
+  double bpm=value("tempo");std::optional<double> ppq;bool hostRolling=false;
+  if(auto* playHead=getPlayHead())if(auto position=playHead->getPosition()){if(auto hostBpm=position->getBpm())bpm=*hostBpm;hostRolling=position->getIsPlaying();if(hostRolling)if(auto beats=position->getPpqPosition())ppq=*beats;}
+  const double sps=60./jmax(20.,bpm)/4.*sampleRate,swing=value("swing")*.5;
+  const bool synced=value("seqSync")>.5f&&ppq.has_value();
+  if(!seqRunning){seqRunning=true;stepCount=0;untilStep=0;offIn=-1;seqNoteOn=false;prevSlide=false;lastAbsolute=-1;}
+  if(synced){ // the next step from the host's position: absolute step numbers, so no step is played twice
+   const double pos=*ppq*4.;const long long k=(long long)std::floor(pos+1e-9);long long nextStep=k;double at=double(k)+((k&1)?swing:0.);
+   if(at<pos-1e-9||k<=lastAbsolute){nextStep=k+1;at=double(nextStep)+((nextStep&1)?swing:0.);}
+   untilStep=(at-pos)*sps;stepCount=nextStep;}
+  for(int guard=0;guard<64;++guard){
+   const double nextOn=untilStep,nextOff=offIn>=0?offIn:1e300;
+   if(nextOff<=nextOn&&nextOff<double(n)){if(seqNoteOn)emit(int(nextOff),false,0,false,false);seqNoteOn=false;offIn=-1;continue;}
+   if(nextOn>=double(n))break;
+   const int offset=int(nextOn),i=int(((stepCount%p.length)+p.length)%p.length);const auto& st=p.steps[size_t(i)];const auto& after=p.steps[size_t((i+1)%p.length)];
+   if(st.gate==oxide::play){emit(offset,true,p.midiNote(i,36,transpose.load()),st.accent,prevSlide&&seqNoteOn);seqNoteOn=true;}
+   else if(st.gate==oxide::rest){if(seqNoteOn)emit(offset,false,0,false,false);seqNoteOn=false;}
+   const bool sounding=seqNoteOn&&st.gate!=oxide::rest,hold=sounding&&(st.slide||after.gate==oxide::tie);
+   offIn=sounding&&!hold?nextOn+sps*.5:-1;prevSlide=sounding&&st.slide;
+   shownStep.store(i);lastAbsolute=stepCount;
+   const double length=synced?sps*(1.+(((stepCount+1)&1)?swing:-swing)):sps*(1.+((stepCount&1)?-swing:swing));
+   untilStep=nextOn+length;++stepCount;}
+  untilStep-=n;if(offIn>=0)offIn-=n;
+  return count;
+ }
+ void play(const SeqEvent& e){if(e.on){voice.noteOn(e.note,e.accent,e.slide);shownAccent.store(e.accent);}else voice.noteOff();}
  void parameterChanged(const String&,float) override {modified.store(true);}
  void audioProcessorParameterChanged(AudioProcessor*,int,float) override {}
  void audioProcessorChanged(AudioProcessor*,const AudioProcessorListener::ChangeDetails&) override {}
@@ -219,6 +295,8 @@ private:
  std::atomic<bool> modified{false},loadingPreset{false},shownAccent{false},shownSlide{false};std::atomic<int> currentProgram{0},shownNote{-1};
  double sampleRate=44100;int blockCapacity=8192;MidiBuffer chunkMidi;
  oxide::Voice voice;Array<int> held;float wheel=0;AudioBuffer<float> voiceBuffer;
+ std::array<oxide::Pattern,16> patterns;SpinLock patternLock;std::array<SeqEvent,96> seqEvents{};std::atomic<int> shownStep{-1},transpose{0};
+ bool seqRunning=false,seqNoteOn=false,prevSlide=false;long long stepCount=0,lastAbsolute=-1;double untilStep=0,offIn=-1;
  dsp::Oversampling<float> voicePass{1,1,dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,true,false};
  dsp::Oversampling<float> drivePass{2,1,dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,true,false};float driveLow[2]{};
  CharacterDelay echo;OrbitReverb reverb;SmoothedValue<float> gain;

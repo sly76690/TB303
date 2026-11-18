@@ -6,7 +6,7 @@
 // controls, and under it a row of knobs and switches for shapes, modulation and the second filter.
 
 namespace orbitui {
- const Colour panel{0xff080909}, ink{0xfff0e5ca}, dim{0xffc1b99f}, amber{0xffd9772b}, teal{0xff7d9426}; // Oxide: the playing sections in acid green (the name "teal" is kept from Orbit)
+ const Colour panel{0xff080909}, ink{0xfff0e5ca}, dim{0xffc1b99f}, amber{0xffd9772b}, teal{0xffe8c020}; // Oxide: the playing sections in acid yellow, printed in near-black (the name "teal" is kept from Orbit)
  const Colour gold{0xffdcc48a}; // unused by Oxide
  // Light steel grey section bars printed in near-black (the sound), beside the acid green ones (the playing).
  const Colour steel{0xffc6ccd2}, steelInk{0xff15181b};
@@ -422,6 +422,7 @@ private:
  StringArray names; ParameterAttachment attachment;
 };
 
+#include "PatternEditor.h"
 class Editor : public AudioProcessorEditor, private Timer {
  using APVTS = AudioProcessorValueTreeState;
  enum { designW = 1600, designH = 1000, left = 32, contentW = 1536, gap = 12 };
@@ -655,9 +656,11 @@ private:
   bigKnob("slideTime","TIME",area);lamp(slideLamp,"SLIDE",{area.getCentreX()-40,panelY+panelH-50,80,34});
   area=section("VCA",steel,{1226,panelY,140,panelH});bigKnob("ampDecay","DECAY",area);
   area=section("DRIVE",teal,{1372,panelY,196,panelH});cells=split(area,{1,1});bigKnob("drive","DRIVE",cells[0]);bigKnob("driveTone","TONE",cells[1]);
-  // PATTERN: the 16-step sequencer comes here (next step).
+  // PATTERN: the sixteen memories (left) and the steps of the one chosen.
   area=section("PATTERN",teal,{32,row2Y,contentW,row2H});
-  caption(utf8("Séquenceur de pattern 16 pas : prochaine étape. En attendant : une note liée glisse (SLIDE), une note frappée fort est accentuée."),area.withSizeKeepingCentre(area.getWidth(),20),-1,14.f,dim);
+  patternKeys=std::make_unique<PatternKeys>(*orbit.state.getParameter("pattern"));place(*patternKeys,{area.getX(),area.getY()+4,176,152},-1);
+  caption(utf8("MÉMOIRES"),{area.getX(),area.getY()+160,176,14},-1,11.f,dim);
+  place(grid,{area.getX()+190,area.getY(),area.getWidth()-190,area.getHeight()-6},-1);
   area=section("DELAY",teal,{32,lowerY,300,lowerH});cells=split(area,{1,1,1,1,.75f,.9f});
   compactKnob("delayTime","TIME",cells[0]);delayTimeKnob=&faders.getLast()->slider;
   compactKnob("delayFeedback","FDBK",cells[1]);compactKnob("delayMod","MOD",cells[2]);compactKnob("delayMix","LEVEL",cells[3]);printedToggle("delayOn","ON",cells[4].withTrimmedTop(18));
@@ -666,6 +669,17 @@ private:
   area=section("REVERB",teal,{338,lowerY,300,lowerH});cells=split(area,{1.8f,1,1,1,1,.75f});
   chipChoice("reverbType","",{"VINT","PLATE","SPACE"},cells[0].withHeight(65));compactKnob("reverbSize","SIZE",cells[1]);compactKnob("reverbDamp","DAMP",cells[2]);compactKnob("reverbColor","TONE",cells[3]);compactKnob("reverbMix","LEVEL",cells[4]);printedToggle("reverbOn","ON",cells[5].withTrimmedTop(18));
   area=section("PLAY",teal,{644,lowerY,180,lowerH});cells=split(area,{1,1});compactKnob("tempo","TEMPO",cells[0]);compactKnob("bendRange","BEND",cells[1]);
+  // SEQUENCER: PLAY and SYNC, SWING; WRITE fills the selected step from the keys; RANDOM, CLEAR, and the pattern turned
+  // one step left or right. While the pattern plays, a key transposes it (C3: as written).
+  area=section("SEQUENCER",teal,{830,lowerY,738,lowerH});cells=split(area,{.9f,.9f,1,1.1f,1.2f,1.1f,.8f,.8f,1.6f});
+  printedToggle("seqPlay","PLAY",cells[0].withTrimmedTop(18));printedToggle("seqSync","SYNC",cells[1].withTrimmedTop(18));compactKnob("swing","SWING",cells[2]);
+  auto tool=[this](TextButton& b,const String& text,Rectangle<int> cell){b.setButtonText(text);b.getProperties().set("fontSize",12.f);orbitui::tint(b,orbitui::neutral);place(b,cell.withTrimmedTop(30).withHeight(30).reduced(3,0),-1);};
+  tool(writeKey,"WRITE",cells[3]);writeKey.setClickingTogglesState(true);writeKey.getProperties().set("led",1);writeKey.onClick=[this]{orbit.writing.store(writeKey.getToggleState());};
+  tool(randomKey,"RANDOM",cells[4]);randomKey.onClick=[this]{orbit.editPattern([this](oxide::Pattern& p){p.randomise(random);});};
+  tool(clearKey,"CLEAR",cells[5]);clearKey.onClick=[this]{orbit.editPattern([](oxide::Pattern& p){p.clear();});orbit.editStep.store(0);};
+  tool(leftKey,"<",cells[6]);leftKey.onClick=[this]{orbit.editPattern([](oxide::Pattern& p){p.rotate(true);});};
+  tool(rightKey,">",cells[7]);rightKey.onClick=[this]{orbit.editPattern([](oxide::Pattern& p){p.rotate(false);});};
+  caption({},cells[8].withTrimmedTop(26).withHeight(40),-1,12.f,led);seqInfo=labels.getLast();seqInfo->setFont(mono(12.f));seqInfo->getProperties().set("live",true);
  }
  void buildKeyboard() {
   using namespace orbitui;
@@ -718,7 +732,7 @@ private:
    if(section.page>=0){g.setColour(section.colour.withAlpha(.05f));g.fillRect(section.area);} // layer I and II pages: a faint wash of their colour
    g.setColour(ink.withAlpha(.28f));g.drawRect(section.area,1);
    auto bar=section.area.withHeight(27);g.setColour(section.colour);g.fillRect(bar);
-   g.setColour(section.colour==steel||section.colour==gold?steelInk:ink);g.setFont(face(19.f,true).withExtraKerningFactor(.07f));g.drawFittedText(section.title,bar.reduced(8,0),Justification::centredLeft,1,.8f);
+   g.setColour(section.colour==steel||section.colour==gold||section.colour==teal?steelInk:ink);g.setFont(face(19.f,true).withExtraKerningFactor(.07f));g.drawFittedText(section.title,bar.reduced(8,0),Justification::centredLeft,1,.8f);
    g.setColour(section.colour);g.fillRect(section.area.withY(section.area.getBottom()-3).withHeight(3));
   }
   g.setColour(steel);for(const auto& rule:tagRules)g.fillRect(rule);
@@ -838,6 +852,10 @@ private:
   String shown = line;
   if (const int note = orbit.soundingNote(); note >= 0) shown += "    " + MidiMessage::getMidiNoteName(note, true, true, 4) + (orbit.accentLit() ? "  ACC" : "") + (orbit.slideLit() ? "  SLIDE" : "");
   accentLamp.setToggleState(orbit.soundingNote() >= 0 && orbit.accentLit(), dontSendNotification);
+  grid.refresh(); writeKey.setToggleState(orbit.writing.load(), dontSendNotification);
+  if (orbit.state.getRawParameterValue("seqPlay")->load() > .5f) { const int tr = orbit.transposition(); shown = "PATTERN " + String(orbit.patternIndex() + 1) + "    STEP " + String(orbit.playingStep() + 1).paddedLeft('0', 2) + (tr != 0 ? "    TRANSPOSE " + String(tr > 0 ? "+" : "") + String(tr) : String()); }
+  else if (orbit.writing.load()) shown = "WRITE    PATTERN " + String(orbit.patternIndex() + 1) + "    STEP " + String(orbit.editStep.load() + 1).paddedLeft('0', 2) + "    PLAY THE KEYS";
+  if (seqInfo != nullptr) { const int tr = orbit.transposition(); const String text = "TRANSPOSE " + String(tr > 0 ? "+" : "") + String(tr); if (seqInfo->getText() != text) seqInfo->setText(text, dontSendNotification); }
   slideLamp.setToggleState(orbit.slideLit(), dontSendNotification);
   if (orbit.isLearning()) { const int touched = orbit.lastTouchedParameter();
    shown = touched < 0 ? String("MIDI LEARN    TOUCH A CONTROL") : "MIDI LEARN    " + orbit.getParameters()[touched]->getName(14).toUpperCase() + "  <  MOVE A CC"; }
@@ -867,7 +885,8 @@ private:
  struct Sync { std::unique_ptr<SyncKey> key; std::unique_ptr<SyncKnob> knob; Slider* free = nullptr; Label* value = nullptr; const char* id = ""; bool wasSynced = true; };
  OwnedArray<Sync> syncs;
  OwnedArray<TextButton> bankButtons, patchButtons;
- Slider pitchWheel; ComboBox presets; TextButton saveButton, loadButton, octDown, octUp, midiButton, accentLamp, slideLamp; void* forceMonitor = nullptr; int sentPressure = 0;
+ Slider pitchWheel; ComboBox presets; TextButton saveButton, loadButton, octDown, octUp, midiButton, accentLamp, slideLamp, writeKey, randomKey, clearKey, leftKey, rightKey;
+ PatternGrid grid{orbit}; std::unique_ptr<PatternKeys> patternKeys; Label* seqInfo = nullptr; Random random; void* forceMonitor = nullptr; int sentPressure = 0;
  StringArray userNames, soundNames; String displayLine; Colour sectionColour{orbitui::neutral};
  int page = 0, octave = 2, shownBank = 0, lastProgram = -1;
 };
