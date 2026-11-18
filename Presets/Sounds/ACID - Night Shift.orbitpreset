@@ -7,7 +7,7 @@
   <PARAM id="decay" value="0.8"/>
   <PARAM id="accent" value="0.6"/>
   <PARAM id="delaySync" value="5.0"/>
-  <PARAM id="delayFeedback" value="0.42"/>
-  <PARAM id="delayMix" value="0.18"/>
+  <PARAM id="delayFeedback" value="0.4"/>
+  <PARAM id="delayMix" value="0.16"/>
   <PARAM id="reverbMix" value="0.1"/>
 </OrbitState>

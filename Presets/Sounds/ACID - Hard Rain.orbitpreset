@@ -6,7 +6,7 @@
   <PARAM id="envMod" value="0.6"/>
   <PARAM id="decay" value="0.5"/>
   <PARAM id="accent" value="0.75"/>
+  <PARAM id="driveMode" value="0.0"/>
   <PARAM id="drive" value="0.55"/>
   <PARAM id="driveTone" value="0.5"/>
-  <PARAM id="gain" value="0.6"/>
 </OrbitState>

@@ -27,6 +27,9 @@ static bool sequencerTests(){
   auto crossings=[&](int from,int to){int n=0;for(int i=from+1;i<to;++i)if(x[size_t(i-1)]<0&&x[size_t(i)]>=0)++n;return n;};
   const int low=crossings(24000,72000),high=crossings(168000,216000); // 1 s each: C2 is 65.4 Hz
   if(!require(std::abs(low-65)<=3&&std::abs(high-131)<=4,"transpose: "+juce::String(low)+" / "+juce::String(high)))return false;}
+ // The sixteen factory patterns are there from the start, none empty.
+ {std::unique_ptr<juce::AudioProcessor> q(createPluginFilter());juce::MemoryBlock data;q->getStateInformation(data);auto xml=juce::AudioProcessor::getXmlFromBinary(data.getData(),int(data.getSize()));
+  for(int i=1;i<=16;++i){oxide::Pattern pt;pt.fromString(xml->getChildByName("Patterns")->getStringAttribute("p"+juce::String(i)));if(!require(!pt.empty(),"factory pattern "+juce::String(i)+" empty"))return false;}}
  // The patterns are saved with the session.
  {auto q=make("3|0,0,1,0,1;7,0,0,1,1;12,0,0,0,1");juce::MemoryBlock data;q->getStateInformation(data);
   auto xml=juce::AudioProcessor::getXmlFromBinary(data.getData(),int(data.getSize()));
