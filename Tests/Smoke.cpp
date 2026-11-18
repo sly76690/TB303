@@ -9,14 +9,16 @@ static juce::AudioProcessorParameter* parameterOf(juce::AudioProcessor& p,const 
 static void setValue(juce::AudioProcessor& p,const char* id,float v){if(auto* r=dynamic_cast<juce::RangedAudioParameter*>(parameterOf(p,id)))r->setValueNotifyingHost(r->convertTo0to1(v));}
 #include "AcidVoiceTests.h"
 #include "SequencerTests.h"
+#include "DriveTests.h"
 
 // OXIDE smoke tests: the voice, the plugin around it, its state, the panel and the shipped sounds.
 int main() {
  juce::ScopedJuceInitialiser_GUI gui;
  if (!acidVoiceTests()) return 101;
  if (!sequencerTests()) return 102;
+ if (!driveTests()) return 103;
  std::unique_ptr<juce::AudioProcessor> p(createPluginFilter());
- if (p->getName() != "Oxide" || p->getParameters().size() != 31) { std::cerr << "Identity or parameter count: " << p->getParameters().size() << "\n"; return 2; }
+ if (p->getName() != "Oxide" || p->getParameters().size() != 32) { std::cerr << "Identity or parameter count: " << p->getParameters().size() << "\n"; return 2; }
  auto* first = dynamic_cast<juce::AudioProcessorParameterWithID*>(p->getParameters()[0]);
  if (!first || first->paramID != "wave") return 3;
  // Plays: a note, clean and audible.

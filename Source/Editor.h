@@ -652,10 +652,11 @@ private:
   bigKnob("cutoff","CUTOFF",cells[0]);bigKnob("resonance","RESONANCE",cells[1]);bigKnob("envMod","ENV MOD",cells[2]);bigKnob("decay","DECAY",cells[3]);
   area=section("ACCENT",steel,{784,panelY,260,panelH});cells=split(area,{1,1});
   bigKnob("accent","ACCENT",cells[0]);bigKnob("accentVelocity","FROM VEL.",cells[1]);lamp(accentLamp,"ACCENT",{area.getCentreX()-40,panelY+panelH-50,80,34});
-  area=section("SLIDE",steel,{1050,panelY,170,panelH});
+  area=section("SLIDE",steel,{1050,panelY,150,panelH});
   bigKnob("slideTime","TIME",area);lamp(slideLamp,"SLIDE",{area.getCentreX()-40,panelY+panelH-50,80,34});
-  area=section("VCA",steel,{1226,panelY,140,panelH});bigKnob("ampDecay","DECAY",area);
-  area=section("DRIVE",teal,{1372,panelY,196,panelH});cells=split(area,{1,1});bigKnob("drive","DRIVE",cells[0]);bigKnob("driveTone","TONE",cells[1]);
+  area=section("VCA",steel,{1206,panelY,116,panelH});bigKnob("ampDecay","DECAY",area);
+  area=section("DRIVE",teal,{1328,panelY,240,panelH});cells=split(area,{1.05f,1,1});
+  chipChoice("driveMode","MODE",{"OD","DIST"},cells[0].withTrimmedTop(20).withHeight(110),true);bigKnob("drive","DRIVE",cells[1]);bigKnob("driveTone","TONE",cells[2]);
   // PATTERN: the sixteen memories (left) and the steps of the one chosen.
   area=section("PATTERN",teal,{32,row2Y,contentW,row2H});
   patternKeys=std::make_unique<PatternKeys>(*orbit.state.getParameter("pattern"));place(*patternKeys,{area.getX(),area.getY()+4,176,152},-1);

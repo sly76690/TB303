@@ -65,15 +65,15 @@ public:
  // Host pages of eight, in the order of the front panel.
  static constexpr const char* hostPages[]={
   "wave","tune","cutoff","resonance","envMod","decay","accent","slideTime",            // VCO, VCF, ACCENT, SLIDE
-  "ampDecay","drive","driveTone","gain","bendRange","tempo","accentVelocity","seqPlay",  // VCA, DRIVE, OUTPUT, PLAY
-  "seqSync","pattern","swing","delayOn",                                                // SEQUENCER
+  "ampDecay","driveMode","drive","driveTone","bendRange","tempo","accentVelocity","seqPlay",  // VCA, DRIVE, OUTPUT, PLAY
+  "gain","seqSync","pattern","swing","delayOn",                                                // SEQUENCER
   "delayTime","delaySync","delayFeedback","delayMod","delayMix","reverbOn","reverbType","reverbSize",
   "reverbDamp","reverbColor","reverbMix"};
  // Short names for the host and controller displays.
  static String label(const String& id,const String& longName){
   static const std::map<String,String> names{
    {"wave","Waveform"},{"tune","Tune"},{"cutoff","Cutoff"},{"resonance","Resonance"},{"envMod","Env Mod"},{"decay","Decay"},{"accent","Accent"},{"slideTime","Slide Time"},
-   {"ampDecay","VCA Decay"},{"drive","Drive"},{"driveTone","Drive Tone"},{"gain","Volume"},{"bendRange","Bend Range"},{"tempo","Tempo"},{"accentVelocity","Accent Vel"},{"seqPlay","Seq Play"},{"seqSync","Seq Sync"},{"pattern","Pattern"},{"swing","Swing"},
+   {"ampDecay","VCA Decay"},{"driveMode","Drive Mode"},{"drive","Drive"},{"driveTone","Drive Tone"},{"gain","Volume"},{"bendRange","Bend Range"},{"tempo","Tempo"},{"accentVelocity","Accent Vel"},{"seqPlay","Seq Play"},{"seqSync","Seq Sync"},{"pattern","Pattern"},{"swing","Swing"},
    {"delayOn","Dly On"},{"delayTime","Dly Time"},{"delaySync","Dly Sync"},{"delayFeedback","Dly Fdbk"},{"delayMod","Dly Mod"},{"delayMix","Dly Level"},
    {"reverbOn","Rev On"},{"reverbType","Rev Type"},{"reverbSize","Rev Size"},{"reverbDamp","Rev Damp"},{"reverbColor","Rev Tone"},{"reverbMix","Rev Level"}};
   const auto found=names.find(id);return found!=names.end()?found->second:longName;
@@ -101,7 +101,7 @@ public:
    AudioParameterFloatAttributes().withStringFromValueFunction([](float v,int){return (v>=0?"+":"")+String(v,2)+" st";})));
   add("cutoff","Cutoff (Hz)",40,6000,400,1.f,true);add("resonance","Resonance",0,1,.55f);add("envMod","Env mod",0,1,.5f);
   add("decay","Decay (s)",.2f,2.5f,.6f,.5f);add("accent","Accent",0,1,.55f);add("slideTime","Slide time (s)",.02f,.4f,.06f,.5f);
-  add("ampDecay","VCA decay (s)",.2f,8,3,.45f);add("drive","Drive",0,1,0);add("driveTone","Drive tone",0,1,.55f);add("gain","Output",0,1,.7f);
+  add("ampDecay","VCA decay (s)",.2f,8,3,.45f);choice("driveMode","Drive mode",{"OVERDRIVE","DISTORTION"});add("drive","Drive",0,1,0);add("driveTone","Drive tone",0,1,.55f);add("gain","Output",0,1,.7f);
   add("bendRange","Pitch bend (semitones)",0,12,2);add("tempo","Tempo (BPM)",40,300,125);
   add("accentVelocity","Accent from velocity",.3f,1,.78f); // a note struck at least this hard is accented
   // SEQUENCER: PLAY, SYNC (to the host's transport and beats), the pattern played, SWING (every second step later).
@@ -138,7 +138,7 @@ public:
   sampleRate=sr;blockCapacity=jmax(block,8192);chunkMidi.ensureSize(8192);
   voice.prepare(sr);held.clearQuick();held.ensureStorageAllocated(128);wheel=0;
   voicePass.reset();voicePass.initProcessing(size_t(blockCapacity));voiceBuffer.setSize(1,blockCapacity);
-  drivePass.reset();drivePass.initProcessing(size_t(blockCapacity));driveLow[0]=driveLow[1]=0;
+  drivePass.reset();drivePass.initProcessing(size_t(blockCapacity));for(int c=0;c<2;++c)driveLow[c]=distLow[c]=distMid[c]=distSlew[c]=0;
   echo.prepare(sr);reverb.prepare(sr);gain.reset(sr,.02);gain.setCurrentAndTargetValue(value("gain"));
  }
  void releaseResources() override {voice.reset();keyboard.reset();echo.reset();reverb.reset();held.clearQuick();}
@@ -176,14 +176,28 @@ public:
   voicePass.processSamplesDown(voiceBlock);
   for(int c=0;c<buffer.getNumChannels();++c)buffer.copyFrom(c,0,voiceBuffer,0,0,n);
   shownNote.store(voice.active()?voice.note():-1);shownSlide.store(voice.active()&&voice.sliding());
-  // DRIVE: a pedal-style clipper at twice the rate, then its TONE (a low-pass from dark to open), the dry level kept.
+  // DRIVE, at four times the rate, then its TONE (a low-pass from dark to open), at about the same loudness at any DRIVE.
+  // OVERDRIVE: a soft, slightly lopsided clipper (a diode pair that does not quite match): warm, it keeps the bass.
+  // DISTORTION: the hard-edged kind of pedal: a high-gain stage that pushes the mids and leaves the deep bass out, its
+  // highs rounded off more as the gain rises (as a slow op-amp does), then hard clipping to ground. Our own values.
   if(const float drive=value("drive");drive>.001f&&buffer.getNumChannels()>=2){
    dsp::AudioBlock<float> block(buffer.getArrayOfWritePointers(),2,size_t(n));auto big=drivePass.processSamplesUp(block);
-   const float pre=1.f+drive*drive*30.f,post=std::pow(pre,-.55f), /* about the same loudness at any DRIVE */toneHz=600.f*std::pow(20.f,value("driveTone"));
-   const float lp=1.f-std::exp(-MathConstants<float>::twoPi*toneHz/float(2.*sampleRate));
-   for(size_t c=0;c<2;++c){auto* x=big.getChannelPointer(c);for(size_t i=0;i<big.getNumSamples();++i){const float v=x[i]*pre;
-     const float shaped=v>0?std::tanh(v):std::tanh(v*.8f)/.8f*.9f; // a little lopsided, like a diode pair that does not quite match
-     driveLow[c]+=(shaped-driveLow[c])*lp;x[i]=driveLow[c]*post;}}
+   const float rate=float(sampleRate)*float(big.getNumSamples())/float(jmax(1,n)),w=MathConstants<float>::twoPi/rate;
+   const float toneHz=600.f*std::pow(20.f,value("driveTone")),lp=1.f-std::exp(-w*toneHz);
+   if(int(value("driveMode"))==0){
+    const float pre=1.f+drive*drive*30.f,post=std::pow(pre,-.55f);
+    for(size_t c=0;c<2;++c){auto* x=big.getChannelPointer(c);for(size_t i=0;i<big.getNumSamples();++i){const float v=x[i]*pre;
+      const float shaped=v>0?std::tanh(v):std::tanh(v*.8f)/.8f*.9f;
+      driveLow[c]+=(shaped-driveLow[c])*lp;x[i]=driveLow[c]*post;}}}
+   else{
+    const float gain=1.f+drive*drive*1500.f,post=.42f*std::pow(gain,-.12f);
+    const float bassCut=1.f-std::exp(-w*90.f),midShelf=1.f-std::exp(-w*720.f),slew=1.f-std::exp(-w*jlimit(2500.f,20000.f,3.0e6f/gain));
+    for(size_t c=0;c<2;++c){auto* x=big.getChannelPointer(c);for(size_t i=0;i<big.getNumSamples();++i){
+      distLow[c]+=(x[i]-distLow[c])*bassCut;const float tight=x[i]-distLow[c];          // the deep bass stays out of the clipper
+      distMid[c]+=(tight-distMid[c])*midShelf;const float pushed=tight+(gain-1.f)*(tight-distMid[c])+std::sqrt(gain)*distMid[c]; // gain rises above the low mids
+      distSlew[c]+=(pushed-distSlew[c])*slew;const float v=distSlew[c]*.8f;
+      const float clipped=v/std::pow(1.f+std::pow(std::abs(v),8.f),.125f);              // hard knee, like silicon diodes to ground
+      driveLow[c]+=(clipped-driveLow[c])*lp;x[i]=driveLow[c]*post;}}}
    drivePass.processSamplesDown(block);}
   // Delay time: the TIME knob when free, otherwise a note value at the host tempo (the TEMPO knob without a host).
   float delaySeconds=value("delayTime");
@@ -298,7 +312,7 @@ private:
  std::array<oxide::Pattern,16> patterns;SpinLock patternLock;std::array<SeqEvent,96> seqEvents{};std::atomic<int> shownStep{-1},transpose{0};
  bool seqRunning=false,seqNoteOn=false,prevSlide=false;long long stepCount=0,lastAbsolute=-1;double untilStep=0,offIn=-1;
  dsp::Oversampling<float> voicePass{1,1,dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,true,false};
- dsp::Oversampling<float> drivePass{2,1,dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,true,false};float driveLow[2]{};
+ dsp::Oversampling<float> drivePass{2,1,dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,true,false};float driveLow[2]{},distLow[2]{},distMid[2]{},distSlew[2]{};
  CharacterDelay echo;OrbitReverb reverb;SmoothedValue<float> gain;
 };
 #include "Editor.h"
