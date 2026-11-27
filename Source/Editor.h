@@ -423,6 +423,19 @@ private:
 };
 
 #include "PatternEditor.h"
+// .MID: the pattern as a MIDI file. Dragged out (to SlyDAW, Ableton, the Finder): the file goes with the mouse.
+// Clicked: written on the Desktop and shown in the Finder.
+class MidiFileButton : public TextButton {
+public:
+ std::function<File()> write; // writes the file, returns it (or File() when it could not)
+ void mouseDrag(const MouseEvent& e) override {
+  if(dragging||e.getDistanceFromDragStart()<6||!write){TextButton::mouseDrag(e);return;}
+  dragging=true;setState(buttonNormal);if(const auto f=write();f.existsAsFile())DragAndDropContainer::performExternalDragDropOfFiles({f.getFullPathName()},false,this);
+ }
+ void mouseUp(const MouseEvent& e) override {const bool dragged=dragging;dragging=false;if(dragged){setState(buttonNormal);return;}TextButton::mouseUp(e);}
+private:
+ bool dragging=false;
+};
 class Editor : public AudioProcessorEditor, private Timer {
  using APVTS = AudioProcessorValueTreeState;
  enum { designW = 1600, designH = 1000, left = 32, contentW = 1536, gap = 12 };
@@ -672,7 +685,7 @@ private:
   area=section("PLAY",teal,{644,lowerY,180,lowerH});cells=split(area,{1,1});compactKnob("tempo","TEMPO",cells[0]);compactKnob("bendRange","BEND",cells[1]);
   // SEQUENCER: PLAY and SYNC, SWING; WRITE fills the selected step from the keys; RANDOM, CLEAR, and the pattern turned
   // one step left or right. While the pattern plays, a key transposes it (C3: as written).
-  area=section("SEQUENCER",teal,{830,lowerY,738,lowerH});cells=split(area,{.9f,.9f,1,1.1f,1.2f,1.1f,.8f,.8f,1.6f});
+  area=section("SEQUENCER",teal,{830,lowerY,738,lowerH});cells=split(area,{.9f,.9f,1,1.1f,1.2f,1.1f,.8f,.8f,1.f,1.3f});
   printedToggle("seqPlay","PLAY",cells[0].withTrimmedTop(18));printedToggle("seqSync","SYNC",cells[1].withTrimmedTop(18));compactKnob("swing","SWING",cells[2]);
   auto tool=[this](TextButton& b,const String& text,Rectangle<int> cell){b.setButtonText(text);b.getProperties().set("fontSize",12.f);orbitui::tint(b,orbitui::neutral);place(b,cell.withTrimmedTop(30).withHeight(30).reduced(3,0),-1);};
   tool(writeKey,"WRITE",cells[3]);writeKey.setClickingTogglesState(true);writeKey.getProperties().set("led",1);writeKey.onClick=[this]{orbit.writing.store(writeKey.getToggleState());};
@@ -680,8 +693,18 @@ private:
   tool(clearKey,"CLEAR",cells[5]);clearKey.onClick=[this]{orbit.editPattern([](oxide::Pattern& p){p.clear();});orbit.editStep.store(0);};
   tool(leftKey,"<",cells[6]);leftKey.onClick=[this]{orbit.editPattern([](oxide::Pattern& p){p.rotate(true);});};
   tool(rightKey,">",cells[7]);rightKey.onClick=[this]{orbit.editPattern([](oxide::Pattern& p){p.rotate(false);});};
-  caption({},cells[8].withTrimmedTop(26).withHeight(40),-1,12.f,led);seqInfo=labels.getLast();seqInfo->setFont(mono(12.f));seqInfo->getProperties().set("live",true);
+  tool(midiKey,".MID",cells[8]);midiKey.setTooltip("Le motif en fichier MIDI : glisser vers SlyDAW / Ableton, ou clic = sur le Bureau");
+  midiKey.write=[this]{return writePatternFile(File::getSpecialLocation(File::tempDirectory).getChildFile("Oxide"));};
+  midiKey.onClick=[this]{if(const auto f=writePatternFile(File::getSpecialLocation(File::userDesktopDirectory));f.existsAsFile())f.revealToUser();};
+  caption({},cells[9].withTrimmedTop(26).withHeight(40),-1,12.f,led);seqInfo=labels.getLast();seqInfo->setFont(mono(12.f));seqInfo->getProperties().set("live",true);
  }
+ File writePatternFile(const File& folder){
+  const auto p=orbit.currentPattern();const int index=orbit.patternIndex();
+  const String name="Oxide pattern "+String(index+1);folder.createDirectory();auto f=folder.getChildFile(name+".mid");f.deleteFile();
+  FileOutputStream out(f);if(!out.openedOk())return {};
+  if(!p.toMidi(0,name,tempoNow()).writeTo(out,1))return {};out.flush();return f;
+ }
+ double tempoNow(){for(auto* b:orbit.getParameters())if(auto* r=dynamic_cast<RangedAudioParameter*>(b))if(r->paramID=="tempo")return double(r->convertFrom0to1(r->getValue()));return 120.0;}
  void buildKeyboard() {
   using namespace orbitui;
   addButton(octDown, "OCT -", {left + 96, keysY + 64, 68, 28}, neutral, 0); addButton(octUp, "OCT +", {left + 96, keysY + 36, 68, 28}, neutral, 0);
@@ -886,7 +909,7 @@ private:
  struct Sync { std::unique_ptr<SyncKey> key; std::unique_ptr<SyncKnob> knob; Slider* free = nullptr; Label* value = nullptr; const char* id = ""; bool wasSynced = true; };
  OwnedArray<Sync> syncs;
  OwnedArray<TextButton> bankButtons, patchButtons;
- Slider pitchWheel; ComboBox presets; TextButton saveButton, loadButton, octDown, octUp, midiButton, accentLamp, slideLamp, writeKey, randomKey, clearKey, leftKey, rightKey;
+ Slider pitchWheel; ComboBox presets; TextButton saveButton, loadButton, octDown, octUp, midiButton, accentLamp, slideLamp, writeKey, randomKey, clearKey, leftKey, rightKey; MidiFileButton midiKey;
  PatternGrid grid{orbit}; std::unique_ptr<PatternKeys> patternKeys; Label* seqInfo = nullptr; Random random; void* forceMonitor = nullptr; int sentPressure = 0;
  StringArray userNames, soundNames; String displayLine; Colour sectionColour{orbitui::neutral};
  int page = 0, octave = 2, shownBank = 0, lastProgram = -1;

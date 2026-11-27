@@ -51,6 +51,7 @@ public:
  // pattern plays with any sound). The panel reads and edits them under the same lock as the audio thread.
  int patternIndex() const {return jlimit(0,15,int(value("pattern")));}
  String patternText(int index){const SpinLock::ScopedLockType lock(patternLock);return patterns[size_t(jlimit(0,15,index))].toString();}
+ oxide::Pattern currentPattern(){const SpinLock::ScopedLockType lock(patternLock);return patterns[size_t(patternIndex())];}
  void editPattern(const std::function<void(oxide::Pattern&)>& change){const SpinLock::ScopedLockType lock(patternLock);change(patterns[size_t(patternIndex())]);modified.store(true);}
  int playingStep() const {return shownStep.load();}
  int transposition() const {return transpose.load();}

@@ -44,5 +44,12 @@ static bool sequencerTests(){
   overlap=maxHeld==2;stray=ons==0;
   if(!require(!stray&&ons>=6&&ons==offs&&held==0&&accent&&overlap,"MIDI out: "+juce::String(ons)+" on / "+juce::String(offs)+" off, max held "+juce::String(maxHeld)))return false;
   {const auto first=std::find_if(out.begin(),out.end(),[](const auto& x){return x.second.isNoteOn();});if(!require(first!=out.end()&&first->first<5&&first->second.getNoteNumber()==36&&first->second.getVelocity()==127,"MIDI out: step 1 at once, C2 accented"))return false;}}
+ // .MID: the pattern as a file: notes on sixteenths from C2, accents, a slide overlaps the next note, a tie carries on.
+ {oxide::Pattern p;p.fromString("4|0,0,1,1,1;7,0,0,0,1;0,0,0,0,2;12,0,0,0,0");const auto f=p.toMidi(0,"t",120);
+  juce::MidiMessageSequence s(*f.getTrack(0));s.updateMatchedPairs();std::vector<std::tuple<double,double,int,int>> notes;
+  for(const auto* e:s)if(e->message.isNoteOn())notes.push_back({e->message.getTimeStamp(),e->noteOffObject?e->noteOffObject->message.getTimeStamp():-1.0,e->message.getNoteNumber(),e->message.getVelocity()});
+  const bool ok=notes.size()==2&&std::get<0>(notes[0])==0&&std::get<2>(notes[0])==36&&std::get<3>(notes[0])==127&&std::get<1>(notes[0])>24 // slide: held into step 2
+   &&std::get<0>(notes[1])==24&&std::get<2>(notes[1])==43&&std::abs(std::get<1>(notes[1])-60)<1e-6; // G, tied through step 3, off half way
+  if(!require(ok,"pattern as a MIDI file: "+juce::String((int)notes.size())+" notes"))return false;}
  std::cout<<"PASS sequencer: steps and rests in time, slide, transpose from the keys, patterns kept with the session\n";return true;
 }
