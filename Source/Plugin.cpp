@@ -131,7 +131,7 @@ public:
   return l;
  }
  const String getName() const override {return "Oxide";}
- bool acceptsMidi() const override {return true;} bool producesMidi() const override {return false;}
+ bool acceptsMidi() const override {return true;} bool producesMidi() const override {return true;} // the sequencer's notes go out (a host can record them)
  double getTailLengthSeconds() const override {return 12;}
  int getNumPrograms() override {return jmax(1,FactoryBank::order().size());} int getCurrentProgram() override {return currentProgram.load();}
  // BANK / PATCH: the embedded factory sounds. A patch change keeps the performance settings as they are.
@@ -147,7 +147,7 @@ public:
  const String getProgramName(int index) override {return isPositiveAndBelow(index,FactoryBank::order().size())?FactoryBank::order()[index].replace(" - "," / "):String("INIT");}
  void changeProgramName(int,const String&) override {}
  void prepareToPlay(double sr,int block) override {
-  sampleRate=sr;blockCapacity=jmax(block,8192);chunkMidi.ensureSize(8192);
+  sampleRate=sr;blockCapacity=jmax(block,8192);chunkMidi.ensureSize(8192);seqOut.ensureSize(8192);outNote=-1;
   voice.prepare(sr);held.clearQuick();held.ensureStorageAllocated(128);wheel=0;
   voicePass.reset();voicePass.initProcessing(size_t(blockCapacity));voiceBuffer.setSize(1,blockCapacity);
   drivePass.reset();drivePass.initProcessing(size_t(blockCapacity));for(int c=0;c<2;++c)driveLow[c]=distLow[c]=distMid[c]=distSlew[c]=0;
@@ -156,12 +156,16 @@ public:
  void releaseResources() override {voice.reset();keyboard.reset();echo.reset();reverb.reset();held.clearQuick();}
  bool isBusesLayoutSupported(const BusesLayout& b) const override {return b.getMainOutputChannelSet()==AudioChannelSet::stereo();}
  // A block larger than prepared is played in pieces of the prepared size: nothing is ever allocated while playing.
+ // MIDI out: only the notes the pattern sequencer plays (accent = velocity 127, slide = the next note starts before
+ // this one stops), so a host can record the pattern as notes. The keys played in are not sent back.
  void processBlock(AudioBuffer<float>& buffer,MidiBuffer& midi) override {
-  const int total=buffer.getNumSamples();if(total<=blockCapacity){processPiece(buffer,midi);return;}
-  for(int done=0;done<total;done+=blockCapacity){const int count=jmin(blockCapacity,total-done);
+  seqOut.clear();outBase=0;
+  const int total=buffer.getNumSamples();
+  if(total<=blockCapacity)processPiece(buffer,midi);
+  else for(int done=0;done<total;done+=blockCapacity){const int count=jmin(blockCapacity,total-done);
    AudioBuffer<float> piece(buffer.getArrayOfWritePointers(),buffer.getNumChannels(),done,count);
-   chunkMidi.clear();chunkMidi.addEvents(midi,done,count,-done);processPiece(piece,chunkMidi);}
-  midi.clear();
+   chunkMidi.clear();chunkMidi.addEvents(midi,done,count,-done);outBase=done;processPiece(piece,chunkMidi);}
+  midi.clear();midi.addEvents(seqOut,0,-1,0);
  }
  void processPiece(AudioBuffer<float>& buffer,MidiBuffer& midi){
   ScopedNoDenormals noDenormals;buffer.clear();keyboard.processNextMidiBuffer(midi,0,buffer.getNumSamples(),true);
@@ -312,7 +316,14 @@ private:
   untilStep-=n;if(offIn>=0)offIn-=n;
   return count;
  }
- void play(const SeqEvent& e){if(e.on){voice.noteOn(e.note,e.accent,e.slide);shownAccent.store(e.accent);}else voice.noteOff();}
+ void play(const SeqEvent& e){if(e.on){voice.noteOn(e.note,e.accent,e.slide);shownAccent.store(e.accent);}else voice.noteOff();send(e);}
+ void send(const SeqEvent& e){const int at=outBase+e.offset;
+  if(!e.on){if(outNote>=0)seqOut.addEvent(MidiMessage::noteOff(1,outNote),at);outNote=-1;return;}
+  const int note=jlimit(0,127,e.note);if(e.slide&&outNote==note)return; // slide into the same note: it just goes on
+  if(outNote>=0&&!e.slide)seqOut.addEvent(MidiMessage::noteOff(1,outNote),at);
+  seqOut.addEvent(MidiMessage::noteOn(1,note,uint8(e.accent?127:96)),at);
+  if(outNote>=0&&e.slide)seqOut.addEvent(MidiMessage::noteOff(1,outNote),at); // legato: the old note stops just after the new one starts
+  outNote=note;}
  void parameterChanged(const String&,float) override {modified.store(true);}
  void audioProcessorParameterChanged(AudioProcessor*,int,float) override {}
  void audioProcessorChanged(AudioProcessor*,const AudioProcessorListener::ChangeDetails&) override {}
@@ -321,6 +332,7 @@ private:
  std::atomic<bool> modified{false},loadingPreset{false},shownAccent{false},shownSlide{false};std::atomic<int> currentProgram{0},shownNote{-1};
  double sampleRate=44100;int blockCapacity=8192;MidiBuffer chunkMidi;
  oxide::Voice voice;Array<int> held;float wheel=0;AudioBuffer<float> voiceBuffer;
+ MidiBuffer seqOut;int outBase=0,outNote=-1; // sequencer notes sent out (see processBlock)
  std::array<oxide::Pattern,16> patterns;SpinLock patternLock;std::array<SeqEvent,96> seqEvents{};std::atomic<int> shownStep{-1},transpose{0};
  bool seqRunning=false,seqNoteOn=false,prevSlide=false;long long stepCount=0,lastAbsolute=-1;double untilStep=0,offIn=-1;
  dsp::Oversampling<float> voicePass{1,1,dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,true,false};

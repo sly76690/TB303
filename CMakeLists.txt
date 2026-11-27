@@ -16,7 +16,7 @@ set(CMAKE_CXX_STANDARD 17)
 add_subdirectory(vendor/JUCE-8.0.6 EXCLUDE_FROM_ALL)
 # The app icon is made when CMake configures: changing the image must re-run that step.
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Source/Assets/orbit-icon.png")
-juce_add_plugin(Oxide ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Source/Assets/orbit-icon.png" COMPANY_NAME "SF Instruments" BUNDLE_ID "com.sfinstruments.oxide" PLUGIN_MANUFACTURER_CODE SfIn PLUGIN_CODE Oxid FORMATS AU VST3 Standalone PRODUCT_NAME "Oxide" IS_SYNTH TRUE NEEDS_MIDI_INPUT TRUE NEEDS_MIDI_OUTPUT FALSE IS_MIDI_EFFECT FALSE COPY_PLUGIN_AFTER_BUILD FALSE VST3_CATEGORIES Instrument Synth)
+juce_add_plugin(Oxide ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Source/Assets/orbit-icon.png" COMPANY_NAME "SF Instruments" BUNDLE_ID "com.sfinstruments.oxide" PLUGIN_MANUFACTURER_CODE SfIn PLUGIN_CODE Oxid FORMATS AU VST3 Standalone PRODUCT_NAME "Oxide" IS_SYNTH TRUE NEEDS_MIDI_INPUT TRUE NEEDS_MIDI_OUTPUT TRUE IS_MIDI_EFFECT FALSE COPY_PLUGIN_AFTER_BUILD FALSE VST3_CATEGORIES Instrument Synth)
 juce_add_binary_data(OrbitReference SOURCES design/neo-vintage/reference-approved.png Source/Assets/orbit-icon.png
   Source/Assets/skin/knob.png Source/Assets/skin/fader.png Source/Assets/skin/led.png
   Source/Assets/skin/index_amber.png Source/Assets/skin/index_teal.png Source/Assets/skin/index_neutral.png) # our rendered knob, fader cap and LED

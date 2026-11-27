@@ -34,5 +34,15 @@ static bool sequencerTests(){
  {auto q=make("3|0,0,1,0,1;7,0,0,1,1;12,0,0,0,1");juce::MemoryBlock data;q->getStateInformation(data);
   auto xml=juce::AudioProcessor::getXmlFromBinary(data.getData(),int(data.getSize()));
   if(!require(xml->getChildByName("Patterns")!=nullptr&&xml->getChildByName("Patterns")->getStringAttribute("p1").startsWith("3|0,0,1,0,1;7,0,0,1,1;12,0,0,0,1"),"patterns kept with the session"))return false;}
+ // MIDI out: the sequencer's notes leave the plugin (a host records them), accents louder, a slide overlaps the
+ // next note; the keys played in are not sent back; stopping sends the last note off.
+ {auto q=make("4|0,0,1,0,1;7,0,0,1,1;12,0,0,0,1;0,0,0,0,0");std::vector<std::pair<long,juce::MidiMessage>> out;juce::AudioBuffer<float> b(2,500);
+  for(int k=0;k<96;++k){juce::MidiBuffer m;if(k==5)m.addEvent(juce::MidiMessage::noteOn(1,60,.6f),0);b.clear();q->processBlock(b,m);for(const auto e:m)out.push_back({long(k)*500+e.samplePosition,e.getMessage()});}
+  setValue(*q,"seqPlay",0);{juce::MidiBuffer m;b.clear();q->processBlock(b,m);for(const auto e:m)out.push_back({96L*500+e.samplePosition,e.getMessage()});}
+  int ons=0,offs=0;bool accent=false,overlap=false,stray=false;int held=0,maxHeld=0;
+  for(const auto& [t,m]:out){if(m.isNoteOn()){++ons;++held;accent=accent||m.getVelocity()==127;}else if(m.isNoteOff()){++offs;--held;}maxHeld=std::max(maxHeld,held);(void)t;}
+  overlap=maxHeld==2;stray=ons==0;
+  if(!require(!stray&&ons>=6&&ons==offs&&held==0&&accent&&overlap,"MIDI out: "+juce::String(ons)+" on / "+juce::String(offs)+" off, max held "+juce::String(maxHeld)))return false;
+  {const auto first=std::find_if(out.begin(),out.end(),[](const auto& x){return x.second.isNoteOn();});if(!require(first!=out.end()&&first->first<5&&first->second.getNoteNumber()==36&&first->second.getVelocity()==127,"MIDI out: step 1 at once, C2 accented"))return false;}}
  std::cout<<"PASS sequencer: steps and rests in time, slide, transpose from the keys, patterns kept with the session\n";return true;
 }
