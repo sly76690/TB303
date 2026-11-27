@@ -11,7 +11,7 @@ endif()
 if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
   set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Architectures" FORCE)
 endif()
-project(Oxide VERSION 0.1.0 LANGUAGES C CXX)
+project(Oxide VERSION 0.1.1 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 add_subdirectory(vendor/JUCE-8.0.6 EXCLUDE_FROM_ALL)
 # The app icon is made when CMake configures: changing the image must re-run that step.
